@@ -65,20 +65,27 @@ logging.basicConfig(level=logging.INFO)
 
 def extract_resume_text(file: UploadFile):
     file_extension = file.filename.split(".")[-1].lower()
-    file_content = file.file.read()  # Read file once
-    file.file.seek(0)  # Reset cursor for re-reading
+    file_content = file.file.read()
+    file.file.seek(0)  # Ensure file pointer is reset
 
     try:
         if file_extension == "pdf":
             with pdfplumber.open(io.BytesIO(file_content)) as pdf:
-                return "\n".join([page.extract_text() for page in pdf.pages if page.extract_text()])
+                text = "\n".join([page.extract_text() for page in pdf.pages if page.extract_text()])
         elif file_extension == "docx":
             doc = docx.Document(io.BytesIO(file_content))
-            return "\n".join([para.text for para in doc.paragraphs])
+            text = "\n".join([para.text for para in doc.paragraphs])
         else:
             raise HTTPException(status_code=400, detail="Unsupported file type.")
+        
+        if not text.strip():
+            raise HTTPException(status_code=400, detail="Extracted resume text is empty.")
+
+        return text
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error processing file: {str(e)}")
+
 
 # ✅ Employers Can Post Jobs
 class JobPost(BaseModel):
@@ -108,10 +115,16 @@ async def register_job_seeker(seeker: JobSeeker):
     return {"message": "Job seeker profile stored successfully."}
 
 # ✅ Resume Enhancement
+#@app.post("/enhance_resume")
+#async def enhance_resume(resume: UploadFile = File(...), job_description: str = Form(...)):
+#    if not resume:
+#        raise HTTPException(status_code=400, detail="No resume file uploaded")
 @app.post("/enhance_resume")
-async def enhance_resume(resume: UploadFile = File(...), job_description: str = Form(...)):
-    if not resume:
-        raise HTTPException(status_code=400, detail="No resume file uploaded")
+async def enhance_resume(
+    resume: UploadFile = File(None),  # Make file optional for second enhancement
+    job_description: str = Form(None),  # Make optional
+    interview_feedback: str = Form(None)  # New field for interview feedback
+):
 
     # Extract resume text
     try:
@@ -131,11 +144,13 @@ async def enhance_resume(resume: UploadFile = File(...), job_description: str = 
         logging.info("OpenAI API Key is set.")
         # **Generate AI-enhanced resume**
         resume_prompt = f"""
-        Improve this resume to match the following job description.
+        Improve this resume to match the following job description and incorporate AI interview feedback.
         Resume: {resume_text}
         Job Description: {job_description}
+        Interview Feedback: {interview_feedback if interview_feedback else "No feedback provided"}
         Provide a well-structured, professional version.
         """
+
 
         response_resume = client.chat.completions.create(
             model="gpt-4",
@@ -242,7 +257,11 @@ async def generate_resume(data: dict):
     filename = f"Enhanced_Resume.{file_format}"
     filepath = create_pdf(resume_text, filename) if file_format == "pdf" else create_docx(resume_text, filename)
 
+    if not os.path.exists(filepath):
+        raise HTTPException(status_code=404, detail="File not found. Ensure resume generation was successful.")
+
     return FileResponse(filepath, headers={"Content-Disposition": f"attachment; filename={filename}"})
+
 
 # Generate Downloadable Cover Letter
 @app.post("/generate_cover_letter")
@@ -258,6 +277,9 @@ async def generate_cover_letter(data: dict):
 
     filename = f"Enhanced_Cover_Letter.{file_format}"
     filepath = create_pdf(cover_letter_text, filename) if file_format == "pdf" else create_docx(cover_letter_text, filename)
+
+    if not os.path.exists(filepath):
+        raise HTTPException(status_code=404, detail="File not found. Ensure cover letter generation was successful.")
 
     return FileResponse(filepath, headers={"Content-Disposition": f"attachment; filename={filename}"})
 
