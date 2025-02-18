@@ -101,15 +101,17 @@ const JobMatchingApp = () => {
   // Improve Resume Based on Interview Answers
   const improveResumeAfterInterview = async () => {
     try {
-      const data = await enhanceResume({
-        resume_text: enhancedResume,
-        interview_feedback: interviewFeedback,
-      });
+      const formData = new FormData();
+      formData.append("resume_text", enhancedResume);
+      formData.append("interview_feedback", interviewFeedback);
+  
+      const data = await enhanceResume(formData);
       setEnhancedResume(data.enhanced_resume);
     } catch (error) {
       alert("Failed to improve resume.");
     }
   };
+  
   
 
   // Fetch Job Matches
